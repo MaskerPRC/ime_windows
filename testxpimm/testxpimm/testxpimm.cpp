@@ -326,7 +326,10 @@ static UINT g_iLangBuff;
 static HANDLE g_hLang;
 static UINT g_nLangBuffSize;
 
+// 这俩就是标准IME和新式TIP两种输入法框架的列表
 static LPLAYOUT g_lpLayout = NULL;
+static LPTIPS g_lpTips = NULL;
+
 static UINT g_iLayoutBuff;
 static HANDLE g_hLayout;
 static UINT g_nLayoutBuffSize;
@@ -337,7 +340,6 @@ static DWORD g_dwAttributes;
 static int g_cyText;
 static int g_cyListItem;
 
-static LPTIPS g_lpTips = NULL;
 static UINT g_iTipsBuff;
 static UINT g_nTipsBuffSize;
 static HANDLE g_hTips;
