@@ -72,6 +72,21 @@ typedef struct
     ATOM atmLayoutText;             // layout text name
     ATOM atmIMEFile;                // IME file name
 } LAYOUT, * LPLAYOUT;
+typedef struct
+{
+    DWORD dwHotKeyID;
+    UINT  idHotKeyName;
+    DWORD fdwEnable;
+    UINT  uModifiers;
+    UINT  uVKey;
+    HKL   hkl;
+    ATOM  atmHotKeyName;
+    UINT  idxLayout;
+    UINT  uLayoutHotKey;
+} HOTKEYINFO, * LPHOTKEYINFO;
+static HOTKEYINFO g_aDirectSwitchHotKey[IME_HOTKEY_DSWITCH_LAST - IME_HOTKEY_DSWITCH_FIRST + 1]; 
+
+#define DSWITCH_HOTKEY_SIZE sizeof(g_aDirectSwitchHotKey) / sizeof(HOTKEYINFO)
 
 
 #define DESC_MAX             MAX_PATH    // max size of a description
@@ -94,6 +109,7 @@ typedef struct
 
 #define IDC_KBDL_DISABLED              1207
 #define IDC_KBDL_DISABLED_2            1208
+#define MAX_DUPLICATED_HKL      64
 
 #define INPUT_TYPE_KBD          TV_ITEM_TYPE_KBD
 #define INPUT_TYPE_PEN          TV_ITEM_TYPE_PEN
@@ -102,6 +118,9 @@ typedef struct
 #define INPUT_TYPE_EXTERNAL     TV_ITEM_TYPE_EXTERNAL
 #define INPUT_TYPE_SMARTTAG     TV_ITEM_TYPE_SMARTTAG
 #define IDS_LOCALE_UNKNOWN             82
+
+#define CHANGE_DIRECTSWITCH  0x0040
+#define CHANGE_TIPCHANGE     0x0010
 
 
 #define IDC_GROUPBOX1                  1100
@@ -1190,6 +1209,7 @@ void AddKbdLayoutOnKbdTip(HKL hkl, UINT iLayout)
         }
     }
 }
+
 HMODULE LoadSystemLibrary(
     LPCTSTR lpModuleName)
 {
@@ -1531,6 +1551,246 @@ BOOL Locale_LoadLayouts(
         pfnSHLoadRegUIString = NULL;
     }
     return (g_iLayoutBuff);
+}
+void EnsureDefaultKbdLayout(UINT* nLocales)
+{
+    HWND hwndTV = GetDlgItem(g_hDlg, IDC_INPUT_LIST);
+
+    TV_ITEM tvItem;
+    HTREEITEM hLangItem;
+    HTREEITEM hGroupItem;
+    HTREEITEM hItem;
+    LPTVITEMNODE pTVItemNode;
+    LPLANGNODE pLangNode = NULL;
+    BOOL bDefLayout = FALSE;
+
+    tvItem.mask = TVIF_HANDLE | TVIF_PARAM;
+
+    for (hLangItem = TreeView_GetChild(hwndTV, g_hTVRoot);
+        hLangItem != NULL;
+        hLangItem = TreeView_GetNextSibling(hwndTV, hLangItem))
+    {
+        for (hGroupItem = TreeView_GetChild(hwndTV, hLangItem);
+            hGroupItem != NULL;
+            hGroupItem = TreeView_GetNextSibling(hwndTV, hGroupItem))
+        {
+            for (hItem = TreeView_GetChild(hwndTV, hGroupItem);
+                hItem != NULL;
+                hItem = TreeView_GetNextSibling(hwndTV, hItem))
+            {
+                (*nLocales)++;
+
+                tvItem.hItem = hItem;
+                if (TreeView_GetItem(hwndTV, &tvItem))
+                {
+
+                    pTVItemNode = (LPTVITEMNODE)tvItem.lParam;
+
+                    if (!pTVItemNode)
+                        continue;
+
+                    pLangNode = (LPLANGNODE)pTVItemNode->lParam;
+
+                    if (pLangNode == NULL &&
+                        (pTVItemNode->uInputType & INPUT_TYPE_KBD) &&
+                        pTVItemNode->hklSub)
+                    {
+                        if (tvItem.hItem = FindTVLangItem(pTVItemNode->dwLangID, NULL))
+                        {
+                            if (TreeView_GetItem(hwndTV, &tvItem) && tvItem.lParam)
+                            {
+                                pTVItemNode = (LPTVITEMNODE)tvItem.lParam;
+                                pLangNode = (LPLANGNODE)pTVItemNode->lParam;
+                            }
+                        }
+                    }
+
+                    if (pLangNode == NULL)
+                        continue;
+
+                    if (!(pLangNode->wStatus & LANG_UNLOAD) &&
+                        (pLangNode->wStatus & LANG_DEFAULT))
+                    {
+                        bDefLayout = TRUE;
+                    }
+                }
+            }
+        }
+    }
+
+    if (!bDefLayout)
+    {
+        LPTVITEMNODE pTVLangItemNode;
+
+        for (hLangItem = TreeView_GetChild(hwndTV, g_hTVRoot);
+            hLangItem != NULL;
+            hLangItem = TreeView_GetNextSibling(hwndTV, hLangItem))
+        {
+            tvItem.hItem = hLangItem;
+            if (TreeView_GetItem(hwndTV, &tvItem))
+            {
+
+                pTVLangItemNode = (LPTVITEMNODE)tvItem.lParam;
+
+                if (!pTVLangItemNode)
+                    continue;
+
+                if (pTVLangItemNode->bDefLang)
+                {
+                    for (hGroupItem = TreeView_GetChild(hwndTV, hLangItem);
+                        hGroupItem != NULL;
+                        hGroupItem = TreeView_GetNextSibling(hwndTV, hGroupItem))
+                    {
+                        for (hItem = TreeView_GetChild(hwndTV, hGroupItem);
+                            hItem != NULL;
+                            hItem = TreeView_GetNextSibling(hwndTV, hItem))
+                        {
+                            tvItem.hItem = hItem;
+                            if (TreeView_GetItem(hwndTV, &tvItem))
+                            {
+
+                                pTVItemNode = (LPTVITEMNODE)tvItem.lParam;
+
+                                if (!pTVItemNode)
+                                    continue;
+
+                                pLangNode = (LPLANGNODE)pTVItemNode->lParam;
+
+                                if (pLangNode == NULL &&
+                                    (pTVItemNode->uInputType & INPUT_TYPE_KBD) &&
+                                    pTVItemNode->hklSub)
+                                {
+                                    if (tvItem.hItem = FindTVLangItem(pTVItemNode->dwLangID, NULL))
+                                    {
+                                        if (TreeView_GetItem(hwndTV, &tvItem) && tvItem.lParam)
+                                        {
+                                            pTVItemNode = (LPTVITEMNODE)tvItem.lParam;
+                                            pLangNode = (LPLANGNODE)pTVItemNode->lParam;
+                                        }
+                                    }
+                                }
+
+                                if (pLangNode == NULL)
+                                    continue;
+
+                                if (!(pLangNode->wStatus & LANG_UNLOAD))
+                                {
+                                    pLangNode->wStatus |= LANG_DEFAULT;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return;
+}
+LRESULT SaveLanguageProfileStatus(
+    BOOL bSave,
+    int iIdxTip,
+    HKL hklSub)
+{
+    HRESULT hr;
+    UINT idx;
+    int iIdxDef = -1;
+    int iIdxDefTip = -1;
+    ITfInputProcessorProfiles* pProfiles = NULL;
+
+    //
+    // load Assembly list
+    //
+    hr = CoCreateInstance(CLSID_TF_InputProcessorProfiles,
+        NULL,
+        CLSCTX_INPROC_SERVER,
+        IID_ITfInputProcessorProfiles,
+        (LPVOID*)&pProfiles);
+
+    if (FAILED(hr))
+        return S_FALSE;
+
+    if (bSave)
+    {
+        ITfFnLangProfileUtil* pLangUtil = NULL;
+
+        for (idx = 0; idx < g_iTipsBuff; idx++)
+        {
+
+            hr = pProfiles->EnableLanguageProfile(
+                (g_lpTips[idx].clsid),
+                (LANGID)g_lpTips[idx].dwLangID,
+                (g_lpTips[idx].guidProfile),
+                g_lpTips[idx].bEnabled);
+            if (FAILED(hr))
+                goto Exit;
+        }
+
+        hr = CoCreateInstance(CLSID_SapiLayr,
+            NULL,
+            CLSCTX_INPROC_SERVER,
+            IID_ITfFnLangProfileUtil,
+            (LPVOID*)&pLangUtil);
+        if (S_OK == hr)
+        {
+            pLangUtil->RegisterActiveProfiles();
+            pLangUtil->Release();
+        }
+    }
+
+    if (hklSub && iIdxTip != -1 && iIdxTip < (int)g_iTipsBuff)
+    {
+        BOOL bFound = FALSE;
+        TCHAR szItem[MAX_PATH];
+        TCHAR szDefLayout[MAX_PATH];
+        HWND hwndDefList = GetDlgItem(g_hDlg, IDC_LOCALE_DEFAULT);
+
+        szDefLayout[0] = L'\0';
+
+
+        GetAtomName(g_lpTips[iIdxTip].atmTipText, szItem, ARRAYSIZE(szItem));
+
+        if (lstrcmp(szItem, szDefLayout) == 0)
+        {
+            iIdxDefTip = iIdxTip;
+            bFound = TRUE;
+        }
+        else
+        {
+            for (idx = 0; idx < g_iTipsBuff; idx++)
+            {
+                if (hklSub == g_lpTips[idx].hklSub)
+                {
+                    GetAtomName(g_lpTips[idx].atmTipText,
+                        szItem,
+                        ARRAYSIZE(szItem));
+
+                    if (lstrcmp(szItem, szDefLayout) == 0)
+                    {
+                        iIdxDefTip = idx;
+                        bFound = TRUE;
+                        break;
+                    }
+
+                }
+            }
+        }
+
+        if (bFound && iIdxDefTip != -1)
+        {
+            pProfiles->SetDefaultLanguageProfile(
+                (LANGID)g_lpTips[iIdxDefTip].dwLangID,
+                (g_lpTips[iIdxDefTip].clsid),
+                (g_lpTips[iIdxDefTip].guidProfile));
+        }
+    }
+
+Exit:
+    if (pProfiles)
+        pProfiles->Release();
+
+    return hr;
 }
 
 BOOL Locale_GetActiveLocales(
@@ -1910,6 +2170,715 @@ Error:
         LocalFree((HANDLE)pLangs);
     return (bReturn);
 }
+void Locale_RemoveFromLinkedList(
+    LPLANGNODE pLangNode)
+{
+    LPINPUTLANG pInpLang;
+    LPLANGNODE pPrev;
+    LPLANGNODE pCur;
+    HANDLE hCur;
+
+    pInpLang = &g_lpLang[pLangNode->iLang];
+
+    //
+    //  Find the node in the list.
+    //
+    pPrev = NULL;
+    pCur = pInpLang->pNext;
+
+    while (pCur && (pCur != pLangNode))
+    {
+        pPrev = pCur;
+        pCur = pCur->pNext;
+    }
+
+    if (pPrev == NULL)
+    {
+        if (pCur == pLangNode)
+        {
+            pInpLang->pNext = pCur->pNext;
+        }
+        else
+        {
+            pInpLang->pNext = NULL;
+        }
+    }
+    else if (pCur)
+    {
+        pPrev->pNext = pCur->pNext;
+    }
+
+    //
+    //  Remove the node from the list.
+    //
+    if (pCur)
+    {
+        hCur = pCur->hLangNode;
+        LocalUnlock(hCur);
+        LocalFree(hCur);
+    }
+}
+
+BOOL Locale_ApplyInputs(
+    HWND hwnd)
+{
+    BOOL bSetDef = FALSE;
+    UINT iVal, idx, ctr, ctr2, nHotKeys;
+    UINT nLocales = 0;
+    UINT iPreload = 0;
+    LPLANGNODE pLangNode, pTemp;
+    LPINPUTLANG pInpLang;
+    DWORD dwID;
+    TCHAR sz[DESC_MAX];            // temp - build the name of the reg entry
+    TCHAR szPreload10[10];
+    TCHAR szTemp[MAX_PATH];
+    HKEY hkeyLayouts;
+    HKEY hkeySubst;
+    HKEY hkeyPreload;
+    HKEY hKeyImm;
+    HKEY hkeyTip;
+    HWND hwndTV = GetDlgItem(hwnd, IDC_INPUT_LIST);
+    HKL hklDefault = 0;
+    HKL hklLoad, hklUnload;
+    HKL hklSub[MAX_DUPLICATED_HKL];
+    HCURSOR hcurSave;
+    HKEY hkeyScanCode;
+    DWORD cb;
+    TCHAR szShiftL[8];
+    TCHAR szShiftR[8];
+    BOOL bHasIme = FALSE;
+    BOOL bReplaced = FALSE;
+    BOOL bCheckedSubhkl;
+    BOOL bDisableCtfmon = FALSE;
+    BOOL bRebootForCUAS = FALSE;
+    BOOL bAlreadyLoadCtfmon = FALSE;
+
+    TV_ITEM tvItem;
+    HTREEITEM hItem;
+    HTREEITEM hLangItem;
+    HTREEITEM hGroupItem;
+
+
+    //
+    //  See if the pane is disabled.  If so, then there is nothing to
+    //  Apply.
+    //
+    if (!IsWindowEnabled(hwndTV))
+    {
+        return (TRUE);
+    }
+
+    //
+    //  Put up the hour glass.
+    //
+    hcurSave = SetCursor(LoadCursor(NULL, IDC_WAIT));
+
+    //
+    //  Make sure there are actually changes since the last save when
+    //  OK is selected.  If the user hits OK without anything to Apply,
+    //  then we should do nothing.
+    //
+    if (g_dwChanges == 0 && !g_bAdvChanged)
+    {
+        pLangNode = NULL;
+        for (idx = 0; idx < g_iLangBuff; idx++)
+        {
+            pLangNode = g_lpLang[idx].pNext;
+            while (pLangNode != NULL)
+            {
+                if (pLangNode->wStatus & (LANG_CHANGED | LANG_DEF_CHANGE))
+                {
+                    break;
+                }
+                pLangNode = pLangNode->pNext;
+            }
+            if (pLangNode != NULL)
+            {
+                break;
+            }
+        }
+        if ((idx == g_iLangBuff) && (pLangNode == NULL))
+        {
+            SetCursor(hcurSave);
+            PropSheet_UnChanged(GetParent(hwnd), hwnd);
+            return (TRUE);
+        }
+    }
+
+    //
+    //  Clean up the registry.
+    //
+
+    //
+    //  For FE languages, there is a keyboard which has a different
+    //  scan code for shift keys - eg. NEC PC9801.
+    //  We have to keep information about scan codes for shift keys in
+    //  the registry under the 'toggle' sub key as named values.
+    //
+    szShiftL[0] = TEXT('\0');
+    szShiftR[0] = TEXT('\0');
+    if (RegOpenKey(HKEY_CURRENT_USER,
+        c_szScanCodeKey,
+        &hkeyScanCode) == ERROR_SUCCESS)
+    {
+        cb = sizeof(szShiftL);
+        RegQueryValueEx(hkeyScanCode,
+            c_szValueShiftLeft,
+            NULL,
+            NULL,
+            (LPBYTE)szShiftL,
+            &cb);
+
+        cb = sizeof(szShiftR);
+        RegQueryValueEx(hkeyScanCode,
+            c_szValueShiftRight,
+            NULL,
+            NULL,
+            (LPBYTE)szShiftR,
+            &cb);
+
+        RegCloseKey(hkeyScanCode);
+    }
+
+    //
+    //  Delete the HKCU\Keyboard Layout key and all subkeys.
+    //
+    if (RegOpenKeyEx(HKEY_CURRENT_USER,
+        c_szKbdLayouts,
+        0,
+        KEY_ALL_ACCESS,
+        &hkeyLayouts) == ERROR_SUCCESS)
+    {
+        //
+        //  Delete the HKCU\Keyboard Layout\Preload, Substitutes, and Toggle
+        //  keys in the registry so that the Keyboard Layout section can be
+        //  rebuilt.
+        //
+        RegDeleteKey(hkeyLayouts, c_szPreloadKey);
+        RegDeleteKey(hkeyLayouts, c_szSubstKey);
+
+        RegCloseKey(hkeyLayouts);
+    }
+
+    //
+    //  Create the HKCU\Keyboard Layout key.
+    //
+    if (RegCreateKey(HKEY_CURRENT_USER,
+        c_szKbdLayouts,
+        &hkeyLayouts) == ERROR_SUCCESS)
+    {
+        //
+        //  Create the HKCU\Keyboard Layout\Substitutes key.
+        //
+        if (RegCreateKey(hkeyLayouts,
+            c_szSubstKey,
+            &hkeySubst) == ERROR_SUCCESS)
+        {
+            //
+            //  Create the HKCU\Keyboard Layout\Preload key.
+            //
+            if (RegCreateKey(hkeyLayouts,
+                c_szPreloadKey,
+                &hkeyPreload) == ERROR_SUCCESS)
+            {
+                //
+                //  Initialize the iPreload variable to 1 to show
+                //  that the key has been created.
+                //
+                iPreload = 1;
+            }
+            else
+            {
+                RegCloseKey(hkeySubst);
+            }
+        }
+        RegCloseKey(hkeyLayouts);
+    }
+    if (!iPreload)
+    {
+        //
+        //  Registry keys could not be created.  Now what?
+        //
+        MessageBeep(MB_OK);
+        SetCursor(hcurSave);
+        return (FALSE);
+    }
+
+    //
+    //  Set all usage counts to zero in the language array.
+    //
+    for (idx = 0; idx < g_iLangBuff; idx++)
+    {
+        g_lpLang[idx].iUseCount = 0;
+    }
+
+    //
+    //  Search through the list to see if any keyboard layouts need to be
+    //  unloaded from the system.
+    //
+    for (idx = 0; idx < g_iLangBuff; idx++)
+    {
+        pLangNode = g_lpLang[idx].pNext;
+        while (pLangNode != NULL)
+        {
+            if ((pLangNode->wStatus & LANG_ORIGACTIVE) &&
+                !(pLangNode->wStatus & LANG_ACTIVE))
+            {
+                //
+                //  Before unloading the hkl, look for the corresponding
+                //  hotkey and remove it.
+                //
+                DWORD dwHotKeyID = 0;
+
+                for (ctr = 0; ctr < DSWITCH_HOTKEY_SIZE; ctr++)
+                {
+                    if (g_aDirectSwitchHotKey[ctr].hkl == pLangNode->hkl)
+                    {
+                        //
+                        //  Found an hkl match.  Remember the hotkey ID so
+                        //  we can delete the hotkey entry later if the
+                        //  unload of the hkl succeeds.
+                        //
+                        dwHotKeyID = g_aDirectSwitchHotKey[ctr].dwHotKeyID;
+                        break;
+                    }
+                }
+
+                //
+                //  Started off with this active, deleting it now.
+                //  Failure is not fatal.
+                //
+                if (UnloadKeyboardLayout(pLangNode->hkl))
+                {
+                    //
+                    //  Succeeded, no longer in USER's list.
+                    //
+                    //  Reset flag, this could be from ApplyInput and we'll
+                    //  fail on the OK if we leave it marked as original
+                    //  active.
+                    //
+                    pLangNode->wStatus &= ~(LANG_ORIGACTIVE | LANG_CHANGED);
+
+                    pTemp = pLangNode->pNext;
+                    Locale_RemoveFromLinkedList(pLangNode);
+                    pLangNode = pTemp;
+                }
+            }
+            else
+            {
+                pLangNode = pLangNode->pNext;
+            }
+        }
+    }
+
+    //
+    //  The order in the registry is based on the order in which they
+    //  appear in the list box.
+    //
+    //  The only exception to this is that the default will be number 1.
+    //
+    //  If no default is found, the last one in the list will be used as
+    //  the default.
+    //
+    iVal = 2;
+    ctr = 0;
+
+    //
+    //  Check the default keyboard layout not to lose the default HKL.
+    //
+    EnsureDefaultKbdLayout(&nLocales);
+
+    tvItem.mask = TVIF_HANDLE | TVIF_PARAM;
+
+    for (hLangItem = TreeView_GetChild(hwndTV, g_hTVRoot);
+        hLangItem != NULL;
+        hLangItem = TreeView_GetNextSibling(hwndTV, hLangItem))
+    {
+        bCheckedSubhkl = FALSE;
+        //
+        //  Clear the duplicated HKL buffer index
+        //
+        ctr2 = 0;
+
+        for (hGroupItem = TreeView_GetChild(hwndTV, hLangItem);
+            hGroupItem != NULL;
+            hGroupItem = TreeView_GetNextSibling(hwndTV, hGroupItem))
+        {
+            for (hItem = TreeView_GetChild(hwndTV, hGroupItem);
+                hItem != NULL;
+                hItem = TreeView_GetNextSibling(hwndTV, hItem))
+            {
+
+                LPTVITEMNODE pTVItemNode;
+
+                pLangNode = NULL;
+
+                tvItem.hItem = hItem;
+                if (TreeView_GetItem(hwndTV, &tvItem) && tvItem.lParam)
+                {
+                    pTVItemNode = (LPTVITEMNODE)tvItem.lParam;
+                    pLangNode = (LPLANGNODE)pTVItemNode->lParam;
+                }
+
+                if (!pLangNode && !bCheckedSubhkl &&
+                    (pTVItemNode->uInputType & INPUT_TYPE_KBD) &&
+                    pTVItemNode->hklSub)
+                {
+                    bCheckedSubhkl = TRUE;
+
+                    if (tvItem.hItem = FindTVLangItem(pTVItemNode->dwLangID, NULL))
+                    {
+                        if (TreeView_GetItem(hwndTV, &tvItem) && tvItem.lParam)
+                        {
+                            LPTVITEMNODE pTVLangItemNode;
+
+                            pTVLangItemNode = (LPTVITEMNODE)tvItem.lParam;
+                            pLangNode = (LPLANGNODE)pTVLangItemNode->lParam;
+                        }
+                    }
+                }
+
+                if (!pLangNode)
+                    continue;
+
+                if (pTVItemNode->hklSub)
+                {
+                    UINT uHklIdx;
+                    BOOL bFoundSameHkl = FALSE;
+
+                    for (uHklIdx = 0; uHklIdx < ctr2; uHklIdx++)
+                    {
+                        if (pTVItemNode->hklSub == hklSub[uHklIdx])
+                        {
+                            bFoundSameHkl = TRUE;
+                            break;
+                        }
+                    }
+
+                    //
+                    // This substitute HKL is already registered. Skip this HKL.
+                    //
+                    if (bFoundSameHkl)
+                        continue;
+
+                    hklSub[ctr2] = pTVItemNode->hklSub;
+                    ctr2++;
+                }
+
+                if (pLangNode->wStatus & LANG_UNLOAD)
+                {
+                    pLangNode->wStatus &= ~LANG_UNLOAD;
+                    pLangNode->wStatus &= ~(LANG_CHANGED | LANG_DEF_CHANGE);
+                    nLocales--;
+                    continue;
+                }
+
+                pInpLang = &(g_lpLang[pLangNode->iLang]);
+
+                //
+                //  Clear the "set hot key" field, since we will be writing to the
+                //  registry.
+                //
+                pLangNode->wStatus &= ~LANG_HOTKEY;
+
+                //
+                //  See if it's the default input locale.
+                //
+                if (!bSetDef && (pLangNode->wStatus & LANG_DEFAULT))
+                {
+                    //
+                    //  Default input locale, so the preload value should be
+                    //  set to 1.
+                    //
+                    iPreload = 1;
+                    bSetDef = TRUE;
+
+                    if (pTVItemNode->hklSub)
+                    {
+                        TCHAR szDefTip[MAX_PATH];
+
+                        if (g_lpTips &&
+                            g_lpTips[pTVItemNode->iIdxTips].hklSub == pTVItemNode->hklSub)
+                        {
+                            BOOL bSave = FALSE;
+
+                            SaveLanguageProfileStatus(bSave,
+                                pTVItemNode->iIdxTips,
+                                pTVItemNode->hklSub);
+                        }
+                    }
+                }
+                else if (ctr == (nLocales - 1))
+                {
+                    //
+                    //  We're on the last one.  Make sure there was a default.
+                    //
+                    iPreload = (iVal <= nLocales) ? iVal : 1;
+                }
+                else
+                {
+                    //
+                    //  Set the preload value to the next value.
+                    //
+                    iPreload = iVal;
+                    iVal++;
+                }
+
+                ctr++;
+
+                //
+                //  Store the preload value as a string so that it can be written
+                //  into the registry (as a value name).
+                //
+                swprintf(sz, ARRAYSIZE(sz), TEXT("%d"), iPreload);
+
+                //
+                //  Store the locale id as a string so that it can be written
+                //  into the registry (as a value).
+                //
+                if ((HIWORD(g_lpLayout[pLangNode->iLayout].dwID) & 0xf000) == 0xe000)
+                {
+                    pLangNode->wStatus |= LANG_IME;
+                    swprintf(szPreload10,
+                        ARRAYSIZE(szPreload10),
+                        TEXT("%8.8lx"),
+                        g_lpLayout[pLangNode->iLayout].dwID);
+                    bHasIme = TRUE;
+                }
+                else
+                {
+                    pLangNode->wStatus &= ~LANG_IME;
+                    dwID = pInpLang->dwID;
+                    idx = pInpLang->iUseCount;
+                    if ((idx == 0) || (idx > 0xfff))
+                    {
+                        idx = 0;
+                    }
+                    else
+                    {
+                        dwID |= ((DWORD)(0xd000 | ((WORD)(idx - 1))) << 16);
+                    }
+                    swprintf(szPreload10, ARRAYSIZE(szPreload10), TEXT("%08.8x"), dwID);
+                    (pInpLang->iUseCount)++;
+                }
+
+                //
+                //  Set the new entry in the registry.  It is of the form:
+                //
+                //  HKCU\Keyboard Layout
+                //      Preload:    1 = <locale id>
+                //                  2 = <locale id>
+                //                      etc...
+                //
+                RegSetValueEx(hkeyPreload,
+                    sz,
+                    0,
+                    REG_SZ,
+                    (LPBYTE)szPreload10,
+                    (DWORD)(lstrlen(szPreload10) + 1) * sizeof(TCHAR));
+
+                //
+                //  See if we need to add a substitute for this input locale.
+                //
+                if (((pInpLang->dwID != g_lpLayout[pLangNode->iLayout].dwID) || idx) &&
+                    (!(pLangNode->wStatus & LANG_IME)))
+                {
+                    //
+                    //  Get the layout id as a string so that it can be written
+                    //  into the registry (as a value).
+                    //
+                    swprintf(szTemp,
+                        ARRAYSIZE(szTemp),
+                        TEXT("%8.8lx"),
+                        g_lpLayout[pLangNode->iLayout].dwID);
+
+                    //
+                    //  Set the new entry in the registry.  It is of the form:
+                    //
+                    //  HKCU\Keyboard Layout
+                    //      Substitutes:    <locale id> = <layout id>
+                    //                      <locale id> = <layout id>
+                    //                          etc...
+                    //
+                    RegSetValueEx(hkeySubst,
+                        szPreload10,
+                        0,
+                        REG_SZ,
+                        (LPBYTE)szTemp,
+                        (DWORD)(lstrlen(szTemp) + 1) * sizeof(TCHAR));
+                }
+
+                //
+                //  Make sure all of the changes are written to disk.
+                //
+                RegFlushKey(hkeySubst);
+                RegFlushKey(hkeyPreload);
+                RegFlushKey(HKEY_CURRENT_USER);
+
+                //
+                //  See if the keyboard layout needs to be loaded.
+                //
+                if (pLangNode->wStatus & (LANG_CHANGED | LANG_DEF_CHANGE))
+                {
+                    //
+                    //  Load the keyboard layout into the system.
+                    //
+                    if (!pLangNode->hklUnload)
+                    {
+                        hklLoad = LoadKeyboardLayout(szPreload10,
+                            KLF_SUBSTITUTE_OK |
+                            KLF_NOTELLSHELL |
+                            g_dwAttributes);
+                    }
+
+                    if (hklLoad)
+                    {
+                        pLangNode->wStatus &= ~(LANG_CHANGED | LANG_DEF_CHANGE);
+                        pLangNode->wStatus |= (LANG_ACTIVE | LANG_ORIGACTIVE);
+
+                        if (pLangNode->wStatus & LANG_DEFAULT)
+                        {
+                            hklDefault = hklLoad;
+                        }
+
+                        pLangNode->hkl = hklLoad;
+                        pLangNode->hklUnload = hklLoad;
+                    }
+                }
+            }
+        }
+    }
+
+    //
+    //  Close the handles to the registry keys.
+    //
+    RegCloseKey(hkeySubst);
+    RegCloseKey(hkeyPreload);
+
+    //
+    //  If TIP setting is changed, save the enable/disable status into
+    //  registry TIP section.
+    //
+    if ((g_dwChanges & CHANGE_TIPCHANGE) && g_iTipsBuff)
+    {
+        int iIdxDefTip = -1;
+        BOOL bSave = TRUE;
+
+        SaveLanguageProfileStatus(bSave, iIdxDefTip, NULL);
+
+        g_dwChanges &= ~CHANGE_TIPCHANGE;
+    }
+
+    //
+    //  Make sure the default is set properly.  The layout id for the
+    //  current default input locale may have been changed.
+    //
+    //  NOTE: This should be done before the Unloads occur in case one
+    //        of the layouts to unload is the old default layout.
+    //
+    if (hklDefault != 0)
+    {
+        if (SystemParametersInfo(SPI_SETDEFAULTINPUTLANG,
+            0,
+            (LPVOID)((LPDWORD)&hklDefault),
+            0))
+        {
+            //
+            //  Try to make everything switch to the new default input locale:
+            //  if we are in setup  OR
+            //  if it is the only one (but not if we just replaced the layout
+            //    within the Input Locale without changing the input locale)
+            //
+            if (g_bSetupCase || ((nLocales == 1) && !bReplaced))
+            {
+                DWORD dwRecipients = BSM_APPLICATIONS | BSM_ALLDESKTOPS;
+                BroadcastSystemMessage(BSF_POSTMESSAGE,
+                    &dwRecipients,
+                    WM_INPUTLANGCHANGEREQUEST,
+                    1,  // IS compatible with system font
+                    (LPARAM)hklDefault);
+            }
+        }
+    }
+
+
+    //
+    //  Set the scan code entries in the registry.
+    //
+    if (RegCreateKey(HKEY_CURRENT_USER,
+        c_szScanCodeKey,
+        &hkeyScanCode) == ERROR_SUCCESS)
+    {
+        if (szShiftL[0])
+        {
+            RegSetValueEx(hkeyScanCode,
+                c_szValueShiftLeft,
+                0,
+                REG_SZ,
+                (LPBYTE)szShiftL,
+                (DWORD)(lstrlen(szShiftL) + 1) * sizeof(TCHAR));
+        }
+
+        if (szShiftR[0])
+        {
+            RegSetValueEx(hkeyScanCode,
+                c_szValueShiftRight,
+                0,
+                REG_SZ,
+                (LPBYTE)szShiftR,
+                (DWORD)(lstrlen(szShiftR) + 1) * sizeof(TCHAR));
+        }
+        RegCloseKey(hkeyScanCode);
+    }
+
+    //
+    //  Call SystemParametersInfo to enable the toggle.
+    //
+    SystemParametersInfo(SPI_SETLANGTOGGLE, 0, NULL, 0);
+
+    //
+    //  Turn off the hour glass.
+    //
+    SetCursor(hcurSave);
+
+    if ((g_dwChanges & CHANGE_DIRECTSWITCH) || bHasIme || bRebootForCUAS)
+    {
+        g_dwChanges &= ~CHANGE_DIRECTSWITCH;
+
+        if (RegOpenKey(HKEY_LOCAL_MACHINE,
+            c_szLoadImmPath,
+            &hKeyImm) == ERROR_SUCCESS)
+        {
+            DWORD dwValue = 1;
+
+            if ((g_dwChanges & CHANGE_DIRECTSWITCH) || bHasIme)
+            {
+                RegSetValueEx(hKeyImm,
+                    TEXT("LoadIMM"),
+                    0,
+                    REG_DWORD,
+                    (LPBYTE)&dwValue,
+                    sizeof(DWORD));
+            }
+
+            RegCloseKey(hKeyImm);
+        }
+    }
+
+    //
+    //  Update the originial input layouts
+    //
+    g_iOrgInputs = g_iInputs;
+
+    //
+    //  Return success.
+    //
+    g_dwChanges = 0;
+    PropSheet_UnChanged(GetParent(hwnd), hwnd);
+
+    return (TRUE);
+}
+
 
 
 VOID parpareTSF(HWND hWnd)
